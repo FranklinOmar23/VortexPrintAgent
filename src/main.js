@@ -1,10 +1,12 @@
-const { app, Tray, Menu, nativeImage, dialog } = require("electron");
+const { app, Tray, Menu, nativeImage, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const https = require("https");
 const WebSocket = require("ws");
 const AutoLaunch = require("auto-launch");
 
 const { loadConfig, getConfigPath } = require("./config");
+const { getOrCreateCert } = require("./tls");
 const printer = require("./printer");
 const poleDisplay = require("./poleDisplay");
 
@@ -18,8 +20,13 @@ if (!soloInstancia) {
 
 let tray = null;
 let wss = null;
+let httpsServer = null;
 let config = null;
 let impresorasDetectadas = [];
+
+function urlAgente() {
+  return `https://127.0.0.1:${config.port}/`;
+}
 
 function iconoBandeja() {
   const rutaIcono = path.join(__dirname, "..", "build", "icon.ico");
@@ -34,6 +41,15 @@ function actualizarMenuBandeja() {
     Menu.buildFromTemplate([
       { label: `Vortex Print Agent -- puerto ${config.port}`, enabled: false },
       { label: `Impresoras detectadas: ${impresorasDetectadas.length}`, enabled: false },
+      { type: "separator" },
+      {
+        // El navegador exige aceptar el certificado autofirmado una vez por PC antes de dejar
+        // pasar la conexión wss:// del frontend -- este ítem abre esa página directo, sin que el
+        // usuario tenga que escribir la URL a mano. Solo hace falta la primera vez (o si se
+        // reinstala el agente y se regenera el certificado).
+        label: "Aceptar certificado en el navegador (1 vez por PC)",
+        click: () => shell.openExternal(urlAgente()),
+      },
       { type: "separator" },
       {
         label: "Ver impresoras detectadas",
@@ -138,9 +154,40 @@ function manejarMensaje(ws, data) {
   ws.send(JSON.stringify({ success: false, error: `Acción desconocida: ${mensaje.action}` }));
 }
 
+// Página que ve el usuario al visitar https://127.0.0.1:<puerto> directo (por el ítem del menú
+// "Aceptar certificado..." o a mano) -- esa visita ES el paso de "aceptar la advertencia de
+// sitio no seguro" que el navegador exige una vez por PC antes de dejar pasar el wss:// del
+// frontend. No hace falta que muestre nada más que confirmar que va bien.
+function paginaEstado() {
+  return `<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Vortex Print Agent</title></head>
+<body style="font-family: system-ui, sans-serif; padding: 2rem; max-width: 40rem;">
+  <h1>Vortex Print Agent está activo ✓</h1>
+  <p>Ya puedes cerrar esta pestaña. Esto solo hace falta abrirlo una vez por PC -- es lo que le
+  confirma al navegador que puede confiar en la conexión segura hacia este agente.</p>
+</body>
+</html>`;
+}
+
 function iniciarServidor() {
+  const { cert, key } = getOrCreateCert();
+
+  httpsServer = https.createServer({ cert, key }, (req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(paginaEstado());
+  });
+
+  httpsServer.on("error", (error) => {
+    dialog.showErrorBox(
+      "Vortex Print Agent",
+      `No se pudo iniciar el servidor en el puerto ${config.port}: ${error.message}\n\n` +
+        `Puede que ya haya otra instancia corriendo, o que el puerto esté ocupado por otro programa.`
+    );
+  });
+
   wss = new WebSocket.Server({
-    port: config.port,
+    server: httpsServer,
     // Verifica el Origin ANTES de completar el handshake -- un origen no permitido nunca llega
     // a conectar (no hay ningún diálogo de "¿permitir?" para los orígenes que sí están en la
     // lista: se aceptan directo).
@@ -151,13 +198,7 @@ function iniciarServidor() {
     ws.on("message", (data) => manejarMensaje(ws, data));
   });
 
-  wss.on("error", (error) => {
-    dialog.showErrorBox(
-      "Vortex Print Agent",
-      `No se pudo iniciar el servidor en el puerto ${config.port}: ${error.message}\n\n` +
-        `Puede que ya haya otra instancia corriendo, o que el puerto esté ocupado por otro programa.`
-    );
-  });
+  httpsServer.listen(config.port);
 }
 
 app.on("second-instance", () => {

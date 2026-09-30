@@ -27,6 +27,19 @@ npm start
 Debe aparecer un ícono en la bandeja del sistema ("Vortex Print Agent"). Click derecho para ver
 las impresoras detectadas, el puerto, o salir.
 
+## Primer uso en cada PC: aceptar el certificado
+
+El agente habla `wss://` (WebSocket cifrado) en vez de `ws://` -- es obligatorio, porque Chrome
+bloquea sin excepción cualquier WebSocket sin cifrar abierto desde una página `https://`, incluso
+hacia `127.0.0.1`. Para eso genera un certificado autofirmado la primera vez que corre (queda
+guardado en la carpeta de datos de usuario, se reusa en los siguientes arranques).
+
+Como es autofirmado, el navegador no confía en él por defecto -- hay que aceptarlo **una vez por
+PC**: click derecho en el ícono de la bandeja → "Aceptar certificado en el navegador (1 vez por
+PC)" → en la pestaña que se abre, click en "Avanzado" → "Continuar a 127.0.0.1 (no seguro)". Esa
+advertencia es normal (es el aviso estándar de cualquier certificado autofirmado, no significa
+que algo esté mal) y solo hace falta la primera vez; después el frontend se conecta solo.
+
 ## Configuración
 
 La primera vez que corre, crea `config.json` en la carpeta de datos de usuario de Windows
