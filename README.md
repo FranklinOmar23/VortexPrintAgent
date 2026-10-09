@@ -62,16 +62,42 @@ agente (Salir → volver a abrir) para que tome el cambio.
 
 ## Empaquetar el instalador de Windows
 
-Antes de empaquetar, reemplaza `build/icon.ico` por un ícono real (el que viene ahora es un
-placeholder vacío -- sirve para `npm start` en desarrollo, pero el instalador final debería
-llevar un ícono de verdad).
-
 ```
-npm run build
+npm run build:win
 ```
 
-Genera el instalador en `dist/`. Se instala una sola vez por PC de caja; el agente arranca solo
-con Windows a partir de ahí (no hace falta abrirlo a mano cada turno).
+Genera **un solo archivo**: `dist/VortexPrintAgent-Setup.exe` (nombre fijo, para que el enlace de
+descarga del frontend no cambie entre versiones). Cópialo a
+`SistemaDeVentasFrontend/Frontend/public/downloads/` en cada despliegue (no va a git: pesa más
+de lo que GitHub permite).
+
+El instalador:
+
+- Lleva el ícono de Vortex (`build/icon.ico`, generado del isotipo con tamaños de 16 a 256 px),
+  igual que el programa instalado y su ícono en la bandeja.
+- Se instala en un clic y **sin pedir permisos de administrador** (por usuario, en
+  `%LOCALAPPDATA%\Programs`), así lo puede instalar el propio cajero.
+- Registra el **arranque con Windows** (`build/installer.nsh`): al encender la PC e iniciar
+  sesión, el agente se abre solo. El desinstalador quita ese registro.
+- Para actualizar, basta con correr el instalador nuevo encima del anterior.
+
+No es un "servicio de Windows" a propósito: un servicio corre sin escritorio (sesión 0), donde no
+puede mostrar el ícono en la bandeja ni imprimir con Electron de forma confiable. Si la PC de caja
+debe quedar lista sin que nadie inicie sesión, configura el inicio de sesión automático de Windows.
+
+### Si falla con "Cannot create symbolic link : A required privilege is not held by the client"
+
+electron-builder descarga `winCodeSign` (lo usa para ponerle el ícono al `.exe`) y ese paquete
+trae dos enlaces simbólicos de macOS que Windows no deja crear sin permisos de administrador o el
+"Modo de desarrollador". No hacen falta para compilar en Windows: extrae el paquete a mano,
+ignorando esos dos errores, y vuelve a compilar:
+
+```
+7za x -y "%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\<cualquiera>.7z" -o"%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0"
+```
+
+(`7za` está en `node_modules\7zip-bin\win\x64\`). Alternativa: activar el Modo de desarrollador
+de Windows o compilar desde una terminal como administrador.
 
 ## Protocolo (para referencia, ver `src/main.js`)
 

@@ -7,7 +7,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:win": "electron-builder --win nsis"
   },
   "dependencies": {
     "auto-launch": "^5.0.6",
@@ -27,19 +28,33 @@
     },
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "build/icon.ico"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "VortexPrintAgent-Setup.exe"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
       "runAfterFinish": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "shortcutName": "Vortex Print Agent"
+      "shortcutName": "Vortex Print Agent",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "Vortex Print Agent",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": "dmg",
