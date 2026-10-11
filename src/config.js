@@ -33,7 +33,16 @@ function loadConfig() {
   const configPath = getConfigPath();
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    const guardada = JSON.parse(raw);
+    // allowedOrigins se UNE con los defaults en vez de reemplazarlos: config.json se crea una sola
+    // vez (con los defaults de ESA versión), así que antes un origen agregado a DEFAULTS en una
+    // versión nueva nunca llegaba a las PCs ya instaladas -- el agente las rechazaba en silencio.
+    const origenesGuardados = Array.isArray(guardada.allowedOrigins) ? guardada.allowedOrigins : [];
+    return {
+      ...DEFAULTS,
+      ...guardada,
+      allowedOrigins: [...new Set([...DEFAULTS.allowedOrigins, ...origenesGuardados])],
+    };
   } catch {
     // Primera vez que corre, o el archivo no existe/está corrupto -- se crea con los defaults.
     fs.mkdirSync(path.dirname(configPath), { recursive: true });

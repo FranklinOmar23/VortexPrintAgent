@@ -49,16 +49,25 @@ La primera vez que corre, crea `config.json` en la carpeta de datos de usuario d
 {
   "port": 56789,
   "allowedOrigins": [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://192.168.1.55",
-    "https://192.168.1.55"
+    "https://*.vortex-pos.com"
   ]
 }
 ```
 
-Si la URL real de producción del frontend es otra, agrégala a `allowedOrigins` y reinicia el
-agente (Salir → volver a abrir) para que tome el cambio.
+Los orígenes de `allowedOrigins` se **suman** a los que ya trae el agente por defecto
+(`src/config.js`: localhost de desarrollo, `https://*.vortex-pos.com`, etc.) -- así, cuando una
+versión nueva agrega un origen, también llega a las PCs que ya tenían su `config.json`. Un `*`
+cubre un solo nivel de subdominio. Si la URL real de producción del frontend es otra, agrégala acá
+y reinicia el agente (Salir → volver a abrir) para que tome el cambio.
+
+## Seguridad
+
+- El agente escucha **solo en `127.0.0.1`** (la propia PC), nunca en la red local: el chequeo de
+  `Origin` protege contra páginas web en un navegador, pero cualquier programa puede mandar el
+  `Origin` que quiera.
+- Cada impresión tiene un tiempo máximo (45 s) y falla si la impresora pedida no existe en la PC
+  (Chromium, si no, imprime en la predeterminada sin avisar).
+- Las escrituras al pole display van en fila, una a la vez, sobre el mismo puerto COM.
 
 ## Empaquetar el instalador de Windows
 

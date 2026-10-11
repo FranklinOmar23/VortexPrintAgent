@@ -85,17 +85,34 @@ function conectar(portName) {
  * @param {string} linea1
  * @param {string} [linea2]
  */
-async function escribir(portName, linea1, linea2 = "") {
-  await conectar(portName);
+function escribir(portName, linea1, linea2 = "") {
+  return enCola(async () => {
+    await conectar(portName);
 
-  const payload = CLEAR_Y_HOME + ajustarLinea(linea1) + SALTO_LINEA + ajustarLinea(linea2);
+    // Pudo cerrarse justo después de conectar (cable desconectado -> port.on("error") lo pone en null).
+    const puerto = puertoActual;
+    if (!puerto) throw new Error(`Se perdió la conexión con ${portName}.`);
 
-  return new Promise((resolve, reject) => {
-    puertoActual.port.write(payload, "ascii", (error) => {
-      if (error) reject(error);
-      else resolve();
+    const payload = CLEAR_Y_HOME + ajustarLinea(linea1) + SALTO_LINEA + ajustarLinea(linea2);
+
+    await new Promise((resolve, reject) => {
+      puerto.port.write(payload, "ascii", (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
     });
   });
+}
+
+// Una operación de puerto a la vez. El frontend actualiza el display varias veces por segundo
+// mientras se cobra: sin esta cola, dos escrituras seguidas antes de que terminara de abrirse el
+// puerto creaban DOS SerialPort sobre el mismo COM y la segunda fallaba ("Access denied"), y una
+// escritura podía encontrarse con puertoActual en null a mitad de camino.
+let cola = Promise.resolve();
+function enCola(tarea) {
+  const resultado = cola.then(tarea, tarea);
+  cola = resultado.catch(() => {});
+  return resultado;
 }
 
 /** Borra la pantalla (ej. al cerrar sesión o cuando no hay ninguna venta en curso). */

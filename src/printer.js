@@ -81,6 +81,8 @@ const ALTO_MINIMO_MICRONES = 60 * 1000;
 // Margen extra sobre el alto medido del documento real, por si el margin/padding del body no
 // termina de reflejarse 1:1 en scrollHeight en algún caso límite.
 const MARGEN_ALTO_PX = 24;
+// Tope para una impresión completa (cargar + medir + imprimir). Un ticket normal tarda 1-2 s.
+const TIMEOUT_IMPRESION_MS = 45 * 1000;
 
 function calcularAnchoMicrones(paperSize, html) {
   const anchoMm = ANCHOS_MM[paperSize];
@@ -110,14 +112,32 @@ function imprimirHtml(printerName, html, paperSize) {
     const rutaTemporal = path.join(os.tmpdir(), `vortex-print-agent-${Date.now()}-${Math.random().toString(36).slice(2)}.html`);
     fs.writeFileSync(rutaTemporal, html, "utf-8");
 
-    const limpiar = () => {
-      fs.unlink(rutaTemporal, () => {});
-    };
-
     // Sin "offscreen" acá -- el renderizado offscreen usa un compositor separado que no se
     // integra bien con el pipeline nativo de impresión de Chromium (mismo síntoma de página en
     // blanco). "show: false" ya es suficiente para que la ventana no se vea.
     const win = new BrowserWindow({ show: false });
+
+    // El HTML viene de afuera: que no pueda abrir ventanas ni navegar a otra página.
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    win.webContents.on("will-navigate", (event) => event.preventDefault());
+
+    // Un solo final (éxito, error o timeout) -- cierra la ventana oculta y borra el temporal una
+    // única vez. Antes, si el driver de la impresora se colgaba y el callback de print() nunca
+    // llegaba, la ventana y el archivo quedaban vivos y el frontend esperaba para siempre.
+    let terminado = false;
+    const terminar = (error) => {
+      if (terminado) return;
+      terminado = true;
+      clearTimeout(timeout);
+      if (!win.isDestroyed()) win.destroy();
+      fs.unlink(rutaTemporal, () => {});
+      if (error) reject(error);
+      else resolve();
+    };
+    const timeout = setTimeout(
+      () => terminar(new Error("La impresora no respondió a tiempo. Verifica que esté encendida y conectada.")),
+      TIMEOUT_IMPRESION_MS
+    );
 
     win.webContents.once("did-finish-load", () => {
       // "did-finish-load" solo garantiza que el HTML terminó de cargar, no que Chromium ya
@@ -126,6 +146,16 @@ function imprimirHtml(printerName, html, paperSize) {
       // corta sin imprimir nada). Se espera un momento a que el render se asiente antes de imprimir.
       setTimeout(async () => {
         try {
+          // Con un deviceName que no existe (impresora renombrada/desinstalada), Chromium imprime
+          // en la predeterminada de Windows sin avisar -- el ticket salía en otra impresora.
+          if (printerName) {
+            const impresoras = await win.webContents.getPrintersAsync();
+            if (!impresoras.some((p) => p.name === printerName)) {
+              terminar(new Error(`No se encontró la impresora "${printerName}" en esta PC.`));
+              return;
+            }
+          }
+
           // Antes esto usaba un alto de página FIJO (200mm) sin importar cuántos ítems tuviera la
           // venta -- una factura larga superaba ese alto y Chromium paginaba el documento en una
           // "página 2", cortando filas de la tabla a la mitad entre ambas páginas (el total de una
@@ -147,25 +177,16 @@ function imprimirHtml(printerName, html, paperSize) {
               margins: { marginType: "none" },
               pageSize: { width: calcularAnchoMicrones(paperSize, html), height: altoMicrones },
             },
-            (success, errorType) => {
-              win.destroy();
-              limpiar();
-              if (success) resolve();
-              else reject(new Error(errorType || "No se pudo imprimir"));
-            }
+            (success, errorType) => terminar(success ? null : new Error(errorType || "No se pudo imprimir"))
           );
         } catch (err) {
-          win.destroy();
-          limpiar();
-          reject(err);
+          terminar(err);
         }
       }, 500);
     });
 
     win.webContents.once("did-fail-load", (_event, _code, description) => {
-      win.destroy();
-      limpiar();
-      reject(new Error(description || "No se pudo cargar el ticket"));
+      terminar(new Error(description || "No se pudo cargar el ticket"));
     });
 
     win.loadFile(rutaTemporal);

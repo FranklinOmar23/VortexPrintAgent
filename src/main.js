@@ -120,6 +120,10 @@ function manejarMensaje(ws, data) {
   }
 
   if (mensaje.action === "print") {
+    if (typeof mensaje.html !== "string" || !mensaje.html.trim()) {
+      ws.send(JSON.stringify({ success: false, error: "El ticket a imprimir viene vacío." }));
+      return;
+    }
     printer
       .imprimirHtml(mensaje.printerName, mensaje.html, mensaje.paperSize)
       .then(() => ws.send(JSON.stringify({ success: true })))
@@ -192,13 +196,19 @@ function iniciarServidor() {
     // a conectar (no hay ningún diálogo de "¿permitir?" para los orígenes que sí están en la
     // lista: se aceptan directo).
     verifyClient: (info) => origenPermitido(info.origin),
+    // Un ticket HTML (con el logo en base64) pesa decenas de KB; el default de `ws` es 100 MB.
+    maxPayload: 5 * 1024 * 1024,
   });
 
   wss.on("connection", (ws) => {
     ws.on("message", (data) => manejarMensaje(ws, data));
   });
 
-  httpsServer.listen(config.port);
+  // Solo en la propia PC. Antes escuchaba en TODAS las interfaces: cualquier equipo de la red
+  // local podía conectarse -- el chequeo de Origin solo protege contra páginas web en un
+  // navegador, un programa cualquiera manda el Origin que quiera -- y mandar a imprimir o
+  // escribir en el pole display. El frontend siempre se conecta a wss://127.0.0.1.
+  httpsServer.listen(config.port, "127.0.0.1");
 }
 
 app.on("second-instance", () => {

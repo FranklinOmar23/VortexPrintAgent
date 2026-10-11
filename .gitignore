@@ -1,3 +1,6 @@
 node_modules/
 dist/
 dist-portable/
+dist-manual/
+# Versión portable vieja (reemplazada por el instalador dist/VortexPrintAgent-Setup.exe).
+*.zip
