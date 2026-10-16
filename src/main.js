@@ -1,6 +1,7 @@
 const { app, Tray, Menu, nativeImage, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
 const https = require("https");
 const WebSocket = require("ws");
 const AutoLaunch = require("auto-launch");
@@ -9,6 +10,7 @@ const { loadConfig, getConfigPath } = require("./config");
 const { getOrCreateCert } = require("./tls");
 const printer = require("./printer");
 const poleDisplay = require("./poleDisplay");
+const { mostrarVentanaEstado } = require("./ventanaEstado");
 
 // Un solo proceso a la vez -- si alguien abre el agente dos veces (ej. quedó uno corriendo de
 // un turno anterior), la segunda instancia simplemente se cierra en vez de pelear por el mismo
@@ -19,13 +21,47 @@ if (!soloInstancia) {
 }
 
 let tray = null;
-let wss = null;
-let httpsServer = null;
 let config = null;
 let impresorasDetectadas = [];
+// Para diagnosticar "Agente inactivo" sin adivinar: qué página se conectó por última vez y cuál
+// fue rechazada (origen fuera de allowedOrigins). Se muestran en la bandeja y en la ventana.
+let ultimaConexion = null; // { origin, fecha }
+let ultimoRechazo = null; // { origin, fecha }
 
 function urlAgente() {
   return `https://127.0.0.1:${config.port}/`;
+}
+
+function estadoParaVentana() {
+  return {
+    version: app.getVersion(),
+    impresoras: impresorasDetectadas.length,
+    ultimaConexion,
+    ultimoRechazo,
+  };
+}
+
+function abrirVentanaEstado() {
+  mostrarVentanaEstado(estadoParaVentana());
+}
+
+// La ventana de estado se abre sola la primera vez que corre CADA versión (justo después de
+// instalar o actualizar) -- así el paso siguiente queda a la vista en vez de escondido en la
+// bandeja.
+function esPrimeraVezDeEstaVersion() {
+  const marca = path.join(app.getPath("userData"), "version-mostrada.txt");
+  try {
+    if (fs.readFileSync(marca, "utf-8").trim() === app.getVersion()) return false;
+  } catch {
+    // No existe todavía.
+  }
+  try {
+    fs.mkdirSync(path.dirname(marca), { recursive: true });
+    fs.writeFileSync(marca, app.getVersion());
+  } catch {
+    // Sin permiso de escritura -- se mostraría en cada arranque, mejor que nunca.
+  }
+  return true;
 }
 
 function iconoBandeja() {
@@ -39,15 +75,22 @@ function actualizarMenuBandeja() {
   if (!tray) return;
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: `Vortex Print Agent -- puerto ${config.port}`, enabled: false },
+      { label: `Vortex Print Agent ${app.getVersion()} -- activo`, enabled: false },
       { label: `Impresoras detectadas: ${impresorasDetectadas.length}`, enabled: false },
-      { type: "separator" },
       {
-        // El navegador exige aceptar el certificado autofirmado una vez por PC antes de dejar
-        // pasar la conexión wss:// del frontend -- este ítem abre esa página directo, sin que el
-        // usuario tenga que escribir la URL a mano. Solo hace falta la primera vez (o si se
-        // reinstala el agente y se regenera el certificado).
-        label: "Aceptar certificado en el navegador (1 vez por PC)",
+        label: ultimaConexion ? `Conectado con: ${ultimaConexion.origin}` : "Ninguna página del sistema conectada todavía",
+        enabled: false,
+      },
+      ...(ultimoRechazo
+        ? [{ label: `Rechazada: ${ultimoRechazo.origin || "(sin origen)"} -- ver "Estado y ayuda"`, enabled: false }]
+        : []),
+      { type: "separator" },
+      { label: "Estado y ayuda", click: abrirVentanaEstado },
+      {
+        // Solo para versiones viejas del sistema, que todavía se conectan por wss:// (el frontend
+        // actual usa ws:// y no necesita certificado). Ojo: abre el navegador PREDETERMINADO de
+        // Windows -- si el sistema se usa en otro navegador, ahí hay que abrir esta URL a mano.
+        label: "Aceptar certificado (solo versiones anteriores del sistema)",
         click: () => shell.openExternal(urlAgente()),
       },
       { type: "separator" },
@@ -174,46 +217,74 @@ function paginaEstado() {
 </html>`;
 }
 
-function iniciarServidor() {
-  const { cert, key } = getOrCreateCert();
-
-  httpsServer = https.createServer({ cert, key }, (req, res) => {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(paginaEstado());
-  });
-
-  httpsServer.on("error", (error) => {
+// Monta el WebSocket del agente sobre un servidor HTTP(S) ya creado y lo pone a escuchar SOLO en
+// la propia PC. Antes escuchaba en TODAS las interfaces: cualquier equipo de la red local podía
+// conectarse -- el chequeo de Origin solo protege contra páginas web en un navegador, un programa
+// cualquiera manda el Origin que quiera -- y mandar a imprimir o escribir en el pole display.
+function montarWebSocket(servidor, puerto, descripcion) {
+  servidor.on("error", (error) => {
     dialog.showErrorBox(
       "Vortex Print Agent",
-      `No se pudo iniciar el servidor en el puerto ${config.port}: ${error.message}\n\n` +
+      `No se pudo iniciar el servidor ${descripcion} en el puerto ${puerto}: ${error.message}\n\n` +
         `Puede que ya haya otra instancia corriendo, o que el puerto esté ocupado por otro programa.`
     );
   });
 
-  wss = new WebSocket.Server({
-    server: httpsServer,
+  const wss = new WebSocket.Server({
+    server: servidor,
     // Verifica el Origin ANTES de completar el handshake -- un origen no permitido nunca llega
     // a conectar (no hay ningún diálogo de "¿permitir?" para los orígenes que sí están en la
     // lista: se aceptan directo).
-    verifyClient: (info) => origenPermitido(info.origin),
+    verifyClient: (info) => {
+      const permitido = origenPermitido(info.origin);
+      if (!permitido) {
+        ultimoRechazo = { origin: info.origin, fecha: new Date().toISOString() };
+        actualizarMenuBandeja();
+      }
+      return permitido;
+    },
     // Un ticket HTML (con el logo en base64) pesa decenas de KB; el default de `ws` es 100 MB.
     maxPayload: 5 * 1024 * 1024,
   });
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
+    const origin = req.headers.origin;
+    if (ultimaConexion?.origin !== origin) {
+      ultimaConexion = { origin, fecha: new Date().toISOString() };
+      actualizarMenuBandeja();
+    } else {
+      ultimaConexion.fecha = new Date().toISOString();
+    }
     ws.on("message", (data) => manejarMensaje(ws, data));
   });
 
-  // Solo en la propia PC. Antes escuchaba en TODAS las interfaces: cualquier equipo de la red
-  // local podía conectarse -- el chequeo de Origin solo protege contra páginas web en un
-  // navegador, un programa cualquiera manda el Origin que quiera -- y mandar a imprimir o
-  // escribir en el pole display. El frontend siempre se conecta a wss://127.0.0.1.
-  httpsServer.listen(config.port, "127.0.0.1");
+  servidor.listen(puerto, "127.0.0.1");
 }
 
+function iniciarServidores() {
+  const responderEstado = (req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(paginaEstado());
+  };
+
+  // ws:// sin certificado -- el que usa el frontend actual. Chrome/Edge/Brave/Firefox permiten
+  // ws://127.0.0.1 desde una página https (la propia PC cuenta como origen seguro; verificado con
+  // Chrome 155), así que el usuario ya no tiene que aceptar ningún certificado. Antes TODO pasaba
+  // por wss:// con un certificado autofirmado: había que aceptarlo a mano en el navegador, el menú
+  // lo abría en el navegador PREDETERMINADO (que no siempre es donde se usa el POS) y el frontend
+  // marcaba "Agente inactivo" aunque el agente estuviera corriendo.
+  montarWebSocket(http.createServer(responderEstado), config.portWs, "ws://");
+
+  // wss:// con certificado autofirmado -- solo para frontends viejos (PWA en caché) que todavía
+  // se conectan por acá.
+  const { cert, key } = getOrCreateCert();
+  montarWebSocket(https.createServer({ cert, key }, responderEstado), config.port, "wss://");
+}
+
+// Volver a abrir el agente (menú Inicio, acceso directo) cuando ya está corriendo: antes no pasaba
+// nada visible y parecía que no había abierto. Ahora muestra la ventana de estado.
 app.on("second-instance", () => {
-  // Alguien intentó abrir una segunda instancia -- no hace falta hacer nada, solo evitar que
-  // la nueva instancia siga corriendo (ya se hizo con app.quit() arriba).
+  if (config) abrirVentanaEstado();
 });
 
 app.whenReady().then(() => {
@@ -224,11 +295,24 @@ app.whenReady().then(() => {
   if (app.dock) app.dock.hide();
 
   config = loadConfig();
-  iniciarServidor();
+  iniciarServidores();
 
   tray = new Tray(iconoBandeja());
-  tray.setToolTip("Vortex Print Agent");
+  tray.setToolTip("Vortex Print Agent -- activo");
+  tray.on("click", abrirVentanaEstado);
   actualizarMenuBandeja();
+
+  // Antes "Impresoras detectadas" quedaba en 0 hasta que el sistema pidiera la lista; se carga ya.
+  printer
+    .listPrinters()
+    .then((impresoras) => {
+      impresorasDetectadas = impresoras;
+      actualizarMenuBandeja();
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (esPrimeraVezDeEstaVersion()) abrirVentanaEstado();
+    });
 
   const autoLaunch = new AutoLaunch({ name: "Vortex Print Agent" });
   autoLaunch.isEnabled().then((habilitado) => {

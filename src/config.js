@@ -7,7 +7,13 @@ const path = require("path");
 const { app } = require("electron");
 
 const DEFAULTS = {
+  // wss:// con certificado autofirmado -- solo para frontends viejos que todavía lo usan (exige
+  // aceptar el certificado en el navegador).
   port: 56789,
+  // ws:// sin TLS -- el que usa el frontend actual. Desde una página https, Chrome/Edge/Brave/
+  // Firefox permiten ws://127.0.0.1 (la propia PC cuenta como origen seguro), así que no hace
+  // falta ningún certificado.
+  portWs: 56790,
   allowedOrigins: [
     "http://localhost:5173",
     "http://localhost:3000",
