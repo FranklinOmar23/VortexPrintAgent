@@ -10,6 +10,7 @@ const { loadConfig, getConfigPath } = require("./config");
 const { getOrCreateCert } = require("./tls");
 const printer = require("./printer");
 const poleDisplay = require("./poleDisplay");
+const balanza = require("./balanza");
 const { mostrarVentanaEstado } = require("./ventanaEstado");
 
 // Un solo proceso a la vez -- si alguien abre el agente dos veces (ej. quedó uno corriendo de
@@ -186,6 +187,15 @@ function manejarMensaje(ws, data) {
     poleDisplay
       .escribir(mensaje.portName, mensaje.linea1, mensaje.linea2)
       .then(() => ws.send(JSON.stringify({ success: true })))
+      .catch((error) => ws.send(JSON.stringify({ success: false, error: error.message })));
+    return;
+  }
+
+  // Balanza (báscula) por puerto serie: devuelve { peso (kg), unidad, estable, crudo }.
+  if (mensaje.action === "leerBalanza") {
+    balanza
+      .leerPeso(mensaje.config)
+      .then((lectura) => ws.send(JSON.stringify({ success: true, ...lectura })))
       .catch((error) => ws.send(JSON.stringify({ success: false, error: error.message })));
     return;
   }
