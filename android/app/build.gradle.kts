@@ -11,8 +11,8 @@ android {
         applicationId = "com.vortex.pos"
         minSdk = 24 // Android 7: cubre prácticamente todas las tabletas de caja en uso.
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
     }
 
     // La APK se firma con la llave de release si está configurada (CI o local); si no, con la de
