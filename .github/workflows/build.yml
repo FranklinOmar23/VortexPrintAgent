@@ -1,9 +1,9 @@
 # Compila los instaladores del agente en máquinas de GitHub: la .dmg de macOS solo se puede armar
 # en una Mac, y la APK de Android (app "Vortex POS" para tabletas, carpeta android/).
 # Corre a mano (Actions > Build instaladores > Run workflow) o al subir un tag v*.
-# Los instaladores quedan como "artifacts" de la corrida; se descargan y se copian a
-# Frontend/public/downloads del POS (VortexPrintAgent-Setup.exe, VortexPrintAgent-arm64.dmg,
-# VortexPrintAgent-x64.dmg, VortexPOS.apk).
+# Con un tag v* se publica un Release con los instaladores (VortexPrintAgent-Setup.exe,
+# VortexPrintAgent-arm64.dmg, VortexPrintAgent-x64.dmg, VortexPOS.apk): el POS los descarga de
+# releases/latest/download/<archivo>, siempre la última versión, sin copiarlos a mano.
 name: Build instaladores
 
 on:
@@ -67,11 +67,11 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+      # El runner de Ubuntu ya trae el SDK de Android (ANDROID_HOME).
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
       # Llave de firma fija (secrets) para que las actualizaciones se instalen encima de la versión
       # anterior. Sin ella la APK sale firmada con la llave de depuración del runner.
       - name: Llave de firma
@@ -87,3 +87,23 @@ jobs:
         with:
           name: VortexPOS-android
           path: android/VortexPOS.apk
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: instaladores
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            instaladores/VortexPrintAgent-Setup.exe
+            instaladores/VortexPrintAgent-arm64.dmg
+            instaladores/VortexPrintAgent-x64.dmg
+            instaladores/VortexPOS.apk
+          fail_on_unmatched_files: true
