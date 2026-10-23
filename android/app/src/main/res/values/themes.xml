@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.VortexPOS" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#4459E1</item>
+        <item name="colorPrimaryDark">#2A3CBD</item>
+        <item name="colorAccent">#4459E1</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>
