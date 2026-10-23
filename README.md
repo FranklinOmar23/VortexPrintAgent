@@ -15,7 +15,16 @@ la acepta sin preguntar. Si el origen no está en la lista, la rechaza en silenc
 ## Requisitos
 
 - Node.js 18 o superior.
-- Windows por ahora (Mac queda para después, ver `package.json` → `build.mac`).
+- Windows o macOS (Intel y Apple Silicon). En Mac el agente vive en la barra de menú (sin ícono
+  en el Dock) y lista las impresoras de CUPS con `lpstat`. Se recomienda usar el POS en Chrome.
+
+## Instaladores
+
+`.github/workflows/build.yml` (Actions > "Build instaladores" > Run workflow, o al subir un tag
+`v*`) compila en máquinas de GitHub el `.exe` de Windows y las `.dmg` de Mac (x64 y arm64). La de
+Mac solo se puede armar en una Mac. Se descargan de los artifacts de la corrida y se copian a
+`Frontend/public/downloads` del POS. Mientras no haya cuenta de Apple Developer la `.dmg` va sin
+firmar: la primera vez, en el Mac, clic derecho en la app > Abrir > Abrir.
 
 ## Correr en desarrollo
 

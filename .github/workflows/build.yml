@@ -1,0 +1,58 @@
+# Compila los instaladores del agente en máquinas de GitHub: la .dmg de macOS solo se puede armar
+# en una Mac. Corre a mano (Actions > Build instaladores > Run workflow) o al subir un tag v*.
+# Los instaladores quedan como "artifacts" de la corrida; se descargan y se copian a
+# Frontend/public/downloads del POS (VortexPrintAgent-Setup.exe, VortexPrintAgent-arm64.dmg,
+# VortexPrintAgent-x64.dmg).
+name: Build instaladores
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+
+  mac:
+    needs: test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Sin cuenta de Apple Developer todavía: se compila sin firmar (macOS pide "Abrir de todos
+      # modos" la primera vez). Para firmar y notarizar, cargar CSC_LINK/CSC_KEY_PASSWORD y
+      # APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID como secrets y quitar esta variable.
+      - run: npx electron-builder --mac dmg --x64 --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VortexPrintAgent-mac
+          path: dist/*.dmg
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx electron-builder --win nsis --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VortexPrintAgent-windows
+          path: dist/*.exe

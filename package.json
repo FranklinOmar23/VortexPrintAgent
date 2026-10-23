@@ -1,7 +1,7 @@
 {
   "name": "vortex-print-agent",
   "productName": "Vortex Print Agent",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Agente local de impresión para el POS Vortex -- reemplaza a QZ Tray. Corre en la bandeja del sistema, recibe tickets por WebSocket y los imprime directo (sin diálogo) en la impresora que elijas.",
   "main": "src/main.js",
   "private": true,
@@ -9,7 +9,8 @@
     "start": "electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win nsis",
-    "test": "node --test test/balanzaParser.test.js"
+    "test": "node --test test/balanzaParser.test.js test/impresorasMac.test.js",
+    "build:mac": "electron-builder --mac dmg"
   },
   "dependencies": {
     "auto-launch": "^5.0.6",
@@ -30,7 +31,10 @@
     "files": [
       "src/**/*",
       "package.json",
-      "build/icon.ico"
+      "build/icon.ico",
+      "build/icon.png",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png"
     ],
     "win": {
       "target": [
@@ -58,8 +62,24 @@
       "deleteAppDataOnUninstall": false
     },
     "mac": {
-      "target": "dmg",
-      "icon": "build/icon.icns"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.business",
+      "extendInfo": {
+        "LSUIElement": true
+      },
+      "artifactName": "VortexPrintAgent-${arch}.dmg"
+    },
+    "dmg": {
+      "title": "Vortex Print Agent"
     }
   }
 }

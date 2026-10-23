@@ -66,6 +66,15 @@ function esPrimeraVezDeEstaVersion() {
 }
 
 function iconoBandeja() {
+  // macOS: ícono "template" en blanco y negro para la barra de menú (se adapta a modo claro/oscuro).
+  if (process.platform === "darwin") {
+    const rutaMac = path.join(__dirname, "..", "build", "trayTemplate.png");
+    if (fs.existsSync(rutaMac)) {
+      const icono = nativeImage.createFromPath(rutaMac);
+      icono.setTemplateImage(true);
+      return icono;
+    }
+  }
   const rutaIcono = path.join(__dirname, "..", "build", "icon.ico");
   if (fs.existsSync(rutaIcono)) return nativeImage.createFromPath(rutaIcono);
   // Fallback para desarrollo si todavía no se agregó un ícono real antes de empaquetar.
@@ -324,7 +333,8 @@ app.whenReady().then(() => {
       if (esPrimeraVezDeEstaVersion()) abrirVentanaEstado();
     });
 
-  const autoLaunch = new AutoLaunch({ name: "Vortex Print Agent" });
+  // En macOS como LaunchAgent (arranca al iniciar sesión sin pedir permisos de automatización).
+  const autoLaunch = new AutoLaunch({ name: "Vortex Print Agent", mac: { useLaunchAgent: true } });
   autoLaunch.isEnabled().then((habilitado) => {
     if (!habilitado) autoLaunch.enable().catch(() => {});
   });

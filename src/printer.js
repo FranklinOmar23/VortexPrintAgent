@@ -5,6 +5,7 @@ const { execFile } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { listarImpresorasMac } = require("./impresorasMac");
 
 function ejecutarPowerShell(comando) {
   return new Promise((resolve, reject) => {
@@ -29,6 +30,13 @@ function ejecutarPowerShell(comando) {
  */
 async function listPrinters() {
   try {
+    // macOS: CUPS (lpstat). Sin resultados se cae al método de Electron de abajo.
+    if (process.platform === "darwin") {
+      const impresoras = await listarImpresorasMac();
+      if (impresoras.length > 0) return impresoras;
+      throw new Error("lpstat no devolvió impresoras");
+    }
+
     const salida = await ejecutarPowerShell(
       "Get-CimInstance Win32_Printer | Select-Object Name,Default,PrinterStatus,WorkOffline,Local | ConvertTo-Json -Compress"
     );
